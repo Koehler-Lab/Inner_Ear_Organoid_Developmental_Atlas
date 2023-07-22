@@ -2,4 +2,4 @@
 
 The source code for analysis performed in:
 
-Steinhart et al., "Defining inner ear cell type specification at single-cell resolution in a model of human cranial development". Manuscript Under Review.
+Steinhart, Valk, Osorio, et al., "Mapping oto-pharyngeal development in a human inner ear organoid model". Manuscript Under Review.
