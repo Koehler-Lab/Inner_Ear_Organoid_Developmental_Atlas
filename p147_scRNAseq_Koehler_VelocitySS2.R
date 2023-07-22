@@ -1,0 +1,85 @@
+# Libraries
+snapshot <- "/lab-share/RC-Data-Science-e2/Public/DST_software/pipeline_R_snapshot/r4.1-20220803-bch-dst-v1/"
+.libPaths(snapshot)
+library(velocyto.R)
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+
+# Setting WD
+setwd('/lab-share/RC-Data-Science-e2/Public/Daniel/p147-scRNAseq-Koehler')
+
+# Loading Seurat Object
+load('SS2.RData')
+SS2 <- FindVariableFeatures(SS2, nfeatures= 5000)
+E0 <- SS2@reductions$umap@cell.embeddings
+mdX <- SS2@meta.data
+mdX <- as.data.frame.array(mdX)
+mdX$BC <- rownames(mdX)
+rownames(mdX) <- paste0(mdX$orig.ident, '_', gsub('-[[:print:]]+$','',rownames(mdX)))
+
+# Reading Matrices
+D6 <- read.loom.matrices("IEOdev_DSP_d6.loom")
+colnames(D6[[1]]) <- paste0('D6_', gsub('IEOdev_DSP_d6:|x', '', colnames(D6[[1]])))
+colnames(D6[[2]]) <- paste0('D6_', gsub('IEOdev_DSP_d6:|x', '', colnames(D6[[2]])))
+D6[[1]] <- D6[[1]][VariableFeatures(SS2),]
+D6[[2]] <- D6[[2]][VariableFeatures(SS2),]
+
+D8 <- read.loom.matrices("IEOdev_DSP_d8.loom")
+colnames(D8[[1]]) <- paste0('D8_', gsub('IEOdev_DSP_d8:|x', '', colnames(D8[[1]])))
+colnames(D8[[2]]) <- paste0('D8_', gsub('IEOdev_DSP_d8:|x', '', colnames(D8[[2]])))
+D8[[1]] <- D8[[1]][VariableFeatures(SS2),]
+D8[[2]] <- D8[[2]][VariableFeatures(SS2),]
+
+# Merging spliced (S) and unspliced (U) matrices
+S <- cbind(D6[[1]], D8[[1]])
+U <- cbind(D6[[2]], D8[[2]])
+
+# Randomly selecting 10K Cells for testing purposes
+set.seed(1)
+SC <- sample(seq_len(ncol(S)), min(c(10000, ncol(S))))
+S <- S[,SC]
+U <- U[,SC]
+
+# Matching cells with the original Seurat object
+mdX <- mdX[intersect(colnames(S), rownames(mdX)),]
+SS2 <- SS2[,mdX$BC]
+
+# Getting the low dimensional representation to be used
+E <- SS2@reductions$umap@cell.embeddings
+rownames(E) <- rownames(mdX)
+S <- S[,rownames(mdX)]
+U <- U[,rownames(mdX)]
+D <- SS2@reductions$pca@cell.embeddings
+rownames(D) <- rownames(E)
+D <- as.dist(1-cor(t(D)))
+
+# Computing transitions
+velocity <- gene.relative.velocity.estimates(S, U, deltaT = 1, kCells = 20, cell.dist = D, fit.quantile = 0.02)
+
+# Computing arrows
+arrows <- show.velocity.on.embedding.cor(E,velocity, n = 20, grid.n = 50, show.grid.flow = TRUE, return.details = TRUE)
+dev.off()
+
+# Plotting
+umap_arrows <- arrows$garrows %>%
+    as.data.frame() %>%
+    mutate(x2 = x0 + (x1 - x0) * 4,
+           y2 = y0 + (y1 - y0) * 4)
+
+png('t.png', width = 2000, height = 2000, res = 300)
+E0 <- as.data.frame(E0)
+ggplot(E0, aes(UMAP_1, UMAP_2)) +
+geom_point(alpha = 0.25, pch = 16, color = 'gray80')+
+geom_curve(data = umap_arrows, curvature = 0.2, angle = 45,
+                 aes(x = x0, xend = x2, y = y0, yend = y2),
+                 size = 1,
+                 arrow = arrow(length = unit(4, "points"), type = "closed"),
+                 colour = "grey20", alpha = 0.8) +
+theme_light() +
+theme(panel.grid = element_blank(), panel.border = element_blank()) +
+xlab('UMAP 1') + ylab('UMAP 2')
+dev.off()
+
+
+save(velocity, arrows , file = 'scVelocity_SS2.RData')
